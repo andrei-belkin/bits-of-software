@@ -1,0 +1,120 @@
+package com.generixgroup.usercreationsoftware.service;
+
+import com.generixgroup.usercreationsoftware.model.Profile.Type;
+import com.google.gson.Gson;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.http.HttpHost;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.AuthCache;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.ResponseHandler;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.impl.auth.BasicScheme;
+import org.apache.http.impl.client.BasicAuthCache;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.client.BasicResponseHandler;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.springframework.stereotype.Service;
+import util.PropertiesReader;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+public abstract class JenkinsService {
+    public static final boolean IS_PROD = false;
+
+    public static String prepareUrl(String connectionProtocol, String hostname, int port, String route, Map<String, String> parameters) {
+        String url = String.format("%s://%s/%s", connectionProtocol, hostname + (IS_PROD ? "" : ":" + port), route);
+
+        if (url != null)
+            url += parameters.keySet()
+                    .stream()
+                    .map(key -> key + "=" + parameters.get(key))
+                    .collect(Collectors.joining("&", "?", ""));
+
+        return url;
+    }
+
+    public static void launchJob(String firstName, String lastName, String username, String password, Type type) {
+        Properties properties = PropertiesReader.getAllProperties();
+
+        final String CONNECTION_PROTOCOL = properties.getProperty("jenkins.connectionProtocol").toLowerCase(Locale.ROOT);
+        final String HOSTNAME =            properties.getProperty("jenkins.instanceHostname");
+        final int PORT =  Integer.parseInt(properties.getProperty("jenkins.instancePort"));
+        final String JOB_TOKEN =           properties.getProperty("jenkins.jobToken");
+
+        Map<String, String> params = new HashMap<>();
+        params.put("jobToken", JOB_TOKEN);
+        params.put("fullName", URLEncoder.encode(firstName + " " + lastName, StandardCharsets.UTF_8));
+        params.put("username", username);
+        params.put("password", password);
+        params.put("isDeveloper", (type == Type.DEVELOPER) ? "true" : "false");
+
+        CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+        credentialsProvider.setCredentials(
+                new AuthScope(HOSTNAME, PORT, AuthScope.ANY_REALM),
+                new UsernamePasswordCredentials(properties.getProperty("jenkins.username"), properties.getProperty("jenkins.apiToken"))
+        );
+
+        HttpClient httpClient = HttpClientBuilder.create().build();
+
+        AuthCache authCache = new BasicAuthCache();
+        authCache.put(new HttpHost(HOSTNAME, PORT, CONNECTION_PROTOCOL), new BasicScheme());
+
+        HttpClientContext httpClientContext = HttpClientContext.create();
+        httpClientContext.setCredentialsProvider(credentialsProvider);
+        httpClientContext.setAuthCache(authCache);
+
+        CrumbJson crumbJson = getCrumbJson(CONNECTION_PROTOCOL, HOSTNAME, PORT, httpClient, httpClientContext);
+
+        if (crumbJson == null)
+            throw new NullPointerException("Received null crumb");
+
+        HttpPost httpPost = new HttpPost(prepareUrl(
+                CONNECTION_PROTOCOL,
+                HOSTNAME,
+                PORT,
+                "job/user-creation-pipeline/buildWithParameters",
+                params
+        ));
+        httpPost.addHeader(crumbJson.crumbRequestField, crumbJson.crumb);
+
+        try {
+            ResponseHandler<String> responseHandler = new BasicResponseHandler();
+            log.info(httpClient.execute(httpPost, responseHandler, httpClientContext));
+        } catch (Exception e) {
+            log.debug(Arrays.toString(e.getStackTrace()));
+        }
+    }
+
+    public static CrumbJson getCrumbJson(String connectionProtocol, String hostname, int port, HttpClient httpClient, HttpClientContext httpClientContext) {
+        CrumbJson crumbJson = null;
+
+        HttpGet httpGet = new HttpGet(prepareUrl(connectionProtocol, hostname, port, "crumbIssuer/api/json", null));
+        ResponseHandler<String> responseHandler = new BasicResponseHandler();
+
+        try {
+            String crumbResponse = httpClient.execute(httpGet, responseHandler, httpClientContext);
+            crumbJson = new Gson().fromJson(crumbResponse, CrumbJson.class);
+        } catch (Exception e) {
+            log.debug("getCrumbJson() has failed.");
+            log.debug(Arrays.toString(e.getStackTrace()));
+        }
+
+        return crumbJson;
+    }
+
+    public static class CrumbJson {
+        public String crumb;
+        public String crumbRequestField;
+    }
+}
+
