@@ -1,0 +1,3 @@
+if [ $(ps axo command | grep "^volumeicon" | wc -l) == "0" ]; then 
+    volumeicon 
+fi
