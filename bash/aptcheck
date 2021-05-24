@@ -1,0 +1,12 @@
+echo
+echo "-- RUNNING APTCHECK --"
+echo
+apt update
+apt check
+apt list --upgradable
+apt dist-upgrade
+apt autoremove
+apt clean
+echo
+echo "-- FINISHED APTCHECK --"
+echo
