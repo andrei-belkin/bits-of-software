@@ -1,0 +1,14 @@
+sudo pacman -S mariadb
+sudo mysql_install_db --user=mysql --basedir=/usr --datadir=/var/lib/mysql
+sudo systemctl enable mariadb.service
+sudo systemctl start mariadb.service
+sudo passwd root # set root pass to set up mysql
+sudo mysql_secure_installation
+sudo mysql -u root
+CREATE USER 'andrei-belkin'@'localhost' IDENTIFIED BY '$0m3_K1nd--0f_-53cUr3__P45$w0rd';
+GRANT ALL PRIVILEGES ON *.* TO 'andrei-belkin'@'localhost';
+FLUSH PRIVILEGES;
+exit
+mysql -u andrei-belkin -p
+SHOW DATABASES;
+exit
